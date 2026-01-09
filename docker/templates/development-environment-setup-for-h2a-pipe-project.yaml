@@ -1,0 +1,156 @@
+# Title: Development Environment Setup for H2A-Pipe Project
+# Description: From: Source/3. Efforts/Res_Ab_developability _ML/Archives/Development Environment Setup for H2A-Pipe Project.md (4 blocks)
+
+# --- Part 1 ---
+preferred_os:
+  primary: Ubuntu 22.04 LTS
+  alternative: macOS 14+ (Apple Silicon optimized)
+  avoid: Windows (unless using WSL2)
+  
+rationale:
+  - Native CUDA support on Linux
+  - Better bioinformatics tool compatibility
+  - Superior memory management for large datasets
+
+# --- Part 2 ---
+# Dockerfile
+FROM mambaforge:latest
+
+# Set working directory
+WORKDIR /app
+
+# Copy environment file
+COPY environment.yml .
+
+# Create conda environment
+RUN mamba env create -f environment.yml && \
+    mamba clean -afy
+
+# Activate environment by default
+SHELL ["conda", "run", "-n", "h2a-pipe", "/bin/bash", "-c"]
+
+# Install additional system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    vim \
+    htop \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY . .
+
+# Install project in development mode
+RUN pip install -e .
+
+# Expose ports for Jupyter and API
+EXPOSE 8888 8000
+
+# Default command
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+
+# --- Part 3 ---
+# docker-compose.yml
+version: '3.8'
+
+services:
+  h2a-pipe:
+    build: .
+    container_name: h2a-pipe-dev
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+      - ./models:/app/models
+    ports:
+      - "8888:8888"  # Jupyter
+      - "8000:8000"  # FastAPI
+      - "6006:6006"  # TensorBoard
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+  postgres:
+    image: postgres:15
+    container_name: h2a-postgres
+    environment:
+      POSTGRES_DB: antibody_db
+      POSTGRES_USER: h2a_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+  
+  redis:
+    image: redis:7-alpine
+    container_name: h2a-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: h2a-mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql://h2a_user:${DB_PASSWORD}@postgres:5432/mlflow
+      - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow/artifacts
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+  mlflow_data:
+
+# --- Part 4 ---
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      
+  - repo: https://github.com/psf/black
+    rev: 23.7.0
+    hooks:
+      - id: black
+        language_version: python3.11
+        args: ['--line-length=100']
+  
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ['--profile', 'black', '--line-length', '100']
+  
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        args: ['--max-line-length=100', '--ignore=E203,W503']
+  
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.4.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]

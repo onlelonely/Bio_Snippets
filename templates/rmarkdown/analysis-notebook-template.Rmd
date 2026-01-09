@@ -1,0 +1,108 @@
+---
+title: "Analysis Notebook Template"
+author: "Author Name"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+params:
+  config_dir: "../../config"
+  data_dir: "../../data"
+  output_dir: "../../results"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 12,
+  fig.height = 8
+)
+```
+
+# Overview
+
+Brief description of the analysis performed in this notebook.
+
+# 1. Setup
+
+```{r libraries}
+# Core libraries
+library(tidyverse)
+library(yaml)
+
+# Visualization
+library(ggpubr)
+library(ggrepel)
+
+# Tables
+library(knitr)
+library(DT)
+
+# Load utility scripts
+source("../../scripts/utils/config_loader.R")
+source("../../scripts/utils/data_loader.R")
+
+# Load configuration
+config_list <- load_all_config(params$config_dir)
+config <- config_list$config
+columns <- config_list$columns
+
+cat("✓ Setup complete\n")
+```
+
+```{r load-data}
+# Load data using configuration
+clinical_data <- load_clinical_data(config, columns)
+genomic_data <- load_genomic_data(config, columns)
+
+cat("✓ Data loaded\n")
+```
+
+# 2. Analysis
+
+## 2.1 Section Title
+
+```{r analysis-chunk}
+# Analysis code here
+```
+
+# 3. Results
+
+## 3.1 Summary Table
+
+```{r results-table}
+# Results table
+```
+
+## 3.2 Visualization
+
+```{r figure, fig.width=12, fig.height=10}
+# Figure code here
+```
+
+# 4. Export Results
+
+```{r export}
+# Create output directory
+dir.create(file.path(params$output_dir, "tables"), showWarnings = FALSE, recursive = TRUE)
+
+# Export results
+# write_csv(results, file.path(params$output_dir, "tables", "results.csv"))
+
+cat("✓ Results exported\n")
+```
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
+
+**Report Generated**: `r Sys.time()`

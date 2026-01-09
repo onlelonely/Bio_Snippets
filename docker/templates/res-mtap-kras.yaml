@@ -1,0 +1,5 @@
+# Title: Res_MTAP_KRAS
+# Description: From: Source/3. Efforts/Res_Amgen_MTAP_KRAS/Res_MTAP_KRAS.md
+
+target_genes:
+  primary: "MTAP"  # 改為任何基因名稱

@@ -1,0 +1,147 @@
+# Title: GHD Phenotype library
+# Description: From: Source/3. Efforts/_Archives/Svc_Phenotype library design/GHD Phenotype library.md (2 blocks)
+
+# --- Part 1 ---
+coding_reference:
+  - url: "https://nbct.nhri.org.tw/docDetail.aspx?uid=10156&pid=10152&docid=10249&rn=-29726"
+
+components:
+  - concept: "Pancreatic_Cancer_Diagnosis"
+    description: "定義新診斷為胰臟癌的病人"
+    any_of:
+      - system: "NBCT_CDM_ACCESS_File"
+        source_table: "Cancer_Characteristic_(Newly diagnosis)_from_case_report_form_(ACCESS_file)"
+        logic: "Cancer_type == '06'"
+
+  - concept: "Pre-diagnostic_Hyperglycemia"
+    description: "定義診斷前有高血糖事件的病人"
+    all_of:
+      - system: "NBCT_CDM_Lab_Results"
+        source_table: "Laboratory_results_from_NBCT_CDM"
+        logic:
+          - "COUNT(records WHERE Test_code == '09005C') >= 2"
+          - "ALL(records.Lab_value WHERE Test_code == '09005C') > 126"
+
+  - concept: "History_of_Diabetes_Mellitus"
+    description: "定義已有糖尿病共病史的病人"
+    any_of:
+      - system: "NBCT_CDM_Comorbidity"
+        source_table: "Comorbidities_nbct_cdm"
+        logic: "com_10 == '1' OR com_11 == '1'"
+
+  - concept: "KRAS_G12_Mutation"
+    description: "定義帶有 KRAS G12 基因突變的病人"
+    any_of:
+      - system: "NBCT_CDM_FMI_Genomics"
+        source_table: "fmi_variant_sv"
+        logic: "gene == 'KRAS' AND contains(protein_effect, 'G12')"
+
+  - concept: "KRAS_Wild_Type"
+    description: "定義 KRAS 基因表現為野生型（無突變紀錄）的病人"
+    any_of:
+      - system: "NBCT_CDM_FMI_Genomics"
+        source_table: "fmi_variant_sv"
+        logic: "NOT EXISTS (record WHERE gene == 'KRAS')"
+
+analysis_plan:
+  base_population:
+    from_component: "Pancreatic_Cancer_Diagnosis"
+
+  inclusion_criteria:
+    all_of: 
+      - from_component: "Pre-diagnostic_Hyperglycemia"
+  
+  exclusion_criteria:
+    any_of: 
+      - from_component: "History_of_Diabetes_Mellitus"
+
+  stratification:
+    description: "根據 KRAS 基因狀態將最終世代進行分組"
+    strata:
+      - name: "Group A: KRAS G12 Mutant"
+        all_of:
+          - from_component: "KRAS_G12_Mutation"
+
+      - name: "Group B: KRAS Wild-type"
+        all_of:
+          - from_component: "KRAS_Wild_Type"
+
+# --- Part 2 ---
+coding_reference:
+  - name: "NBCT_CDM"
+    url: "https://nbct.nhri.org.tw/docDetail.aspx?uid=10156&pid=10152&docid=10249&rn=-29726"
+  - name: "NHI"
+    url: "https://dep.mohw.gov.tw/DOS/lp-2503-113-xCat-DOS_dc002-1-20.html"
+
+components:
+  - concept: "Used_Enzalutamide_or_Abiraterone"
+    description: "定義曾使用過 Enzalutamide 或 Abiraterone 的病人"
+    any_of:
+	  - system: "NBCT_CDM"
+        description: "來自 NBCT_CDM 的藥物使用紀錄"
+        source_table: 
+	        - "門診醫療申報檔案"
+	        - "住院醫療申報檔案"
+        logic: "Medication IN ['L02BB04', 'L02BX03']"
+
+      - system: "NHI"
+        description: "來自健保資料庫的藥品使用紀錄"
+        source_table: 
+	        - "Health01_全民健保處方及治療明細檔_門急診"
+	        - "Health02_全民健保處方及治療明細檔_住院"
+        logic: "Medication IN ['BC28434100', 'BC26139100']"
+
+  - concept: "Second_Line_Therapy_Use"
+    description: "使用過 Radium-223 chloride 的病人"
+    any_of:
+      - system: "NBCT_CDM"
+        source_table:
+	        - "門診醫療申報檔案"
+	        - "住院醫療申報檔案"
+        logic: "Medication IN ['V10XX03']"
+      
+      - system: "NHI"
+        source_table: 
+			- "Health01_全民健保處方及治療明細檔_門急診"
+	        - "Health02_全民健保處方及治療明細檔_住院"
+        logic: "Drug_Code IN ['BR00091223']"
+
+features:
+  - concept: "PSA_Nadir"
+    description: "在初次標靶治療後，計算病人血清 PSA 的最低值 (Nadir)"
+    calculation_logic: > 
+      針對世代中的每一位病人，首先找出其最早的初次治療（Enzalutamide 或 Abiraterone）用藥日期。
+      以此日期為起點，篩選出來自 '檢驗檢查資料檔每日格式' 且檢驗代碼為 PSA ('12081C' 或 '27052C') 的所有後續檢驗紀錄。
+      在這些紀錄中，計算並儲存最低的 PSA 數值作為「PSA 最低點 (Nadir)」，並同時記錄此最低值發生的日期。
+      
+  - concept: "PSA_Progression"
+    description: "定義因 PSA 指數連續上升而導致的治療失效事件"
+    calculation_logic: >
+      針對每一位病人，並基於其已算出的「PSA 最低點 (Nadir)」，檢視其所有依時間排序的 PSA 檢驗紀錄。
+      尋找首次出現的連續兩筆檢驗值（紀錄一、紀錄二），此兩筆紀錄必須同時滿足以下所有條件：
+      (1) 兩次檢驗日間隔需大於一週；
+      (2) 紀錄二的 PSA 數值高於紀錄一；
+      (3) 紀錄二的 PSA 數值比「PSA 最低點」高出 25%（含）以上。
+      若找到符合條件的組合，則將第二次檢驗的日期
+
+# 依照用藥順序分組
+analysis_plan:
+  base_population:
+    from_component: "Used_Enzalutamide_or_Abiraterone"
+
+  stratification:
+    description: "根據用藥順序將 base_population 進行最終分組"
+    strata:
+      - name: "Group1_T1_Only"
+        description: "僅使用過 T1 (初始治療)，未使用過 T2 (二線治療)"
+        logic: "EXISTS in base_population AND NOT EXISTS in component 'Used_Radium_223'"
+
+      - name: "Group2_T1_to_T2"
+        description: "先使用 T1，後續再使用 T2"
+        logic: "EXISTS in base_population AND EXISTS in component 'Used_Radium_223'"
+        temporal_logic: "MIN_date_of('Used_Enzalutamide_or_Abiraterone') < MIN_date_of('Used_Radium_223')"
+      
+      - name: "Group3_T2_to_T1"
+        description: "先使用 T2，後續再使用 T1"
+        logic: "EXISTS in base_population AND EXISTS in component 'Used_Radium_223'"
+        temporal_logic: "MIN_date_of('Used_Radium_223') < MIN_date_of('Used_Enzalutamide_or_Abiraterone')"
